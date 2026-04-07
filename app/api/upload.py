@@ -2,6 +2,11 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 import fitz  # PyMuPDF
 import docx
 import io
+import sys
+
+# Ensure stdout uses UTF-8 to prevent encoding errors
+sys.stdout.reconfigure(encoding='utf-8')
+
 from app.api.ingest import chunk_text
 from app.core.config import settings
 from app.core.embeddings import generate_embedding

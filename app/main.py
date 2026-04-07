@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from app.api import health, ingest, query, upload, documents
 from app.core.config import settings
@@ -9,6 +9,17 @@ app = FastAPI(
     description="Production-grade RAG system for company documents",
     version="1.0.0",
 )
+
+@app.middleware("http")
+async def set_utf8_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Be careful not to override content-type for all responses blindly (e.g. application/json).
+    # But as requested, we apply it.
+    if not response.headers.get("Content-Type"):
+        response.headers["Content-Type"] = "text/html; charset=utf-8"
+    elif "charset" not in response.headers.get("Content-Type", ""):
+        response.headers["Content-Type"] += "; charset=utf-8"
+    return response
 
 app.include_router(health.router, tags=["health"])
 app.include_router(ingest.router, prefix="/api/v1", tags=["ingest"])
