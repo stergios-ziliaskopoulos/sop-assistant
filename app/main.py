@@ -1,0 +1,23 @@
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from app.api import health, ingest, query, upload, documents
+from app.core.config import settings
+import os
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    description="Production-grade RAG system for company documents",
+    version="1.0.0",
+)
+
+app.include_router(health.router, tags=["health"])
+app.include_router(ingest.router, prefix="/api/v1", tags=["ingest"])
+app.include_router(query.router, prefix="/api/v1", tags=["query"])
+app.include_router(upload.router, prefix="/api/v1", tags=["upload"])
+app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
+
+# Ensure static directory exists
+os.makedirs("app/static", exist_ok=True)
+
+# Mount static files at root
+app.mount("/", StaticFiles(directory="app/static", html=True), name="static")

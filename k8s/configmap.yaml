@@ -1,0 +1,2 @@
+# TODO: Define ConfigMap for non-sensitive environment variables
+# TODO: (e.g., PROJECT_NAME, REDIS_URL)

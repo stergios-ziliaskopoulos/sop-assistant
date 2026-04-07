@@ -1,0 +1,5 @@
+# TODO: Define GitHub Actions workflow for CI
+# TODO: Trigger on push to main or pull requests
+# TODO: Setup Python and install dependencies
+# TODO: Run pytest
+# TODO: Run linters/type checkers (flake8, mypy)

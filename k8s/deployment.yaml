@@ -1,0 +1,4 @@
+# TODO: Define Deployment for FastAPI app
+# TODO: Configure container image, ports, env vars (from Secret/ConfigMap)
+# TODO: Setup resource limits and requests
+# TODO: Setup liveness and readiness probes
