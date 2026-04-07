@@ -1,5 +1,40 @@
-# TODO: Define GitHub Actions workflow for CI
-# TODO: Trigger on push to main or pull requests
-# TODO: Setup Python and install dependencies
-# TODO: Run pytest
-# TODO: Run linters/type checkers (flake8, mypy)
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run tests
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || 'dummy_key' }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY || 'dummy_key' }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://dummy.supabase.co' }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || 'dummy_key' }}
+        REDIS_URL: redis://localhost:6379/0
+      run: |
+        pytest
