@@ -1,11 +1,20 @@
+import locale
+try:
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+except Exception:
+    try:
+        locale.setlocale(locale.LC_ALL, 'C.UTF-8')
+    except Exception:
+        pass
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+
 from fastapi import APIRouter, HTTPException, UploadFile, File
 import fitz  # PyMuPDF
 import docx
 import io
-import sys
-
-# Ensure stdout uses UTF-8 to prevent encoding errors
-sys.stdout.reconfigure(encoding='utf-8')
+import tempfile
+import os
 
 from app.api.ingest import chunk_text
 from app.core.config import settings
@@ -16,39 +25,51 @@ router = APIRouter()
 
 @router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
+    temp_path = None
     try:
         content = ""
         file_ext = file.filename.split(".")[-1].lower()
         
-        # Read file bytes
         file_bytes = await file.read()
         
+        # Write to temporary file to process BEFORE text extraction
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as temp_file:
+            temp_path = temp_file.name
+            temp_file.write(file_bytes)
+
+        # Force UTF-8 decoding
+        with open(temp_path, 'rb') as f:
+            raw_content = f.read().decode('utf-8', errors='ignore')
+            
         if file_ext == "pdf":
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            doc = fitz.open(temp_path)
             for page in doc:
-                content += page.get_text() + "\n"
+                text = page.get_text()
+                content += text + "\n"
+                print(text, flush=True)
         elif file_ext == "docx":
-            doc = docx.Document(io.BytesIO(file_bytes))
+            doc = docx.Document(temp_path)
             for para in doc.paragraphs:
-                content += para.text + "\n"
+                text = para.text
+                content += text + "\n"
+                print(text, flush=True)
         elif file_ext == "txt":
-            content = file_bytes.decode("utf-8")
+            content = raw_content
+            text = content
+            print(text, flush=True)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format. Use PDF, DOCX, or TXT.")
 
         if not content.strip():
             return {"message": "success", "filename": file.filename, "chunks_processed": 0}
 
-        # 1. Split content into chunks
         chunks = chunk_text(content, chunk_size=1000, overlap=200)
         
         if not chunks:
             return {"message": "success", "filename": file.filename, "chunks_processed": 0}
 
-        # 2. Generate embeddings
         embeddings = [await generate_embedding(chunk) for chunk in chunks]
 
-        # 3. Insert each chunk + embedding into Supabase table "documents"
         supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
         
         records = []
@@ -60,10 +81,12 @@ async def upload_document(file: UploadFile = File(...)):
                 "metadata": {"chunk_index": i, "source_type": "upload"}
             })
             
-        # Execute batch insert
         await supabase.table("documents").insert(records).execute()
         
         return {"message": "success", "filename": file.filename, "chunks_processed": len(chunks)}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
