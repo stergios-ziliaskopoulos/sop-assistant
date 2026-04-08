@@ -1,4 +1,15 @@
 import os
+import sys
+import locale
+try:
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+except Exception:
+    try:
+        locale.setlocale(locale.LC_ALL, 'C.UTF-8')
+    except Exception:
+        pass
+sys.stdout.reconfigure(encoding='utf-8')
+
 from google import genai
 
 def get_embedding_client():
@@ -15,9 +26,10 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[st
     return chunks
 
 async def generate_embedding(text: str) -> list[float]:
+    query_text = text.encode('utf-8', errors='ignore').decode('utf-8')
     client = get_embedding_client()
     result = client.models.embed_content(
         model="gemini-embedding-001",
-        contents=text
+        contents=query_text
     )
     return result.embeddings[0].values

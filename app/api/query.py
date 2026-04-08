@@ -10,14 +10,18 @@ except Exception:
 sys.stdout.reconfigure(encoding='utf-8')
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from supabase import create_async_client
 from app.models.schemas import QueryRequest, QueryResponse, SourceDocument
 from app.core.config import settings
 from app.core.embeddings import generate_embedding
 import os
 import json
+import traceback
+import logging
 from groq import Groq as GroqClient
+
+logging.basicConfig(level=logging.DEBUG)
 
 router = APIRouter()
 
@@ -91,4 +95,9 @@ async def query_documents(request: QueryRequest):
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        full_trace = traceback.format_exc()
+        logging.error(f"FULL ERROR: {full_trace}")
+        return JSONResponse(
+            content={"error": str(e), "traceback": full_trace},
+            status_code=500
+        )

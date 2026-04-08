@@ -10,11 +10,16 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import JSONResponse
 import fitz  # PyMuPDF
 import docx
 import io
 import tempfile
 import os
+import traceback
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 from app.api.ingest import chunk_text
 from app.core.config import settings
@@ -83,7 +88,12 @@ async def upload_document(file: UploadFile = File(...)):
         return {"message": "success", "filename": file.filename, "chunks_processed": len(chunks)}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        full_trace = traceback.format_exc()
+        logging.error(f"FULL ERROR: {full_trace}")
+        return JSONResponse(
+            content={"error": str(e), "traceback": full_trace},
+            status_code=500
+        )
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
