@@ -1,4 +1,4 @@
-# SOP Assistant — Production-Ready RAG System
+#  SOP Assistant — Production-Ready RAG System
 
 ![SOP Assistant Demo](https://via.placeholder.com/800x400.png?text=Add+Screenshot+Here) 
 
