@@ -10,20 +10,25 @@ except Exception:
 sys.stdout.reconfigure(encoding='utf-8')
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 from supabase import create_async_client
 from app.models.schemas import QueryRequest, QueryResponse, SourceDocument
 from app.core.config import settings
 from app.core.embeddings import generate_embedding
 import os
+import json
 from groq import Groq as GroqClient
 
 router = APIRouter()
 
-@router.post("/query", response_model=QueryResponse)
+@router.post("/query")
 async def query_documents(request: QueryRequest):
     try:
+        # Decode user query with utf-8
+        query_text = request.query.encode('utf-8', errors='ignore').decode('utf-8')
+
         # 1. Generate embedding for the query
-        query_embedding = await generate_embedding(request.query)
+        query_embedding = await generate_embedding(query_text)
 
         # 2. Connect to Supabase
         supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
@@ -46,12 +51,12 @@ async def query_documents(request: QueryRequest):
                 content = row.get("content", "")
                 context_texts.append(content)
                 results.append(
-                    SourceDocument(
-                        title=row.get("title", "Unknown"),
-                        content=content,
-                        similarity=row.get("similarity", 0.0),
-                        metadata=row.get("metadata", {})
-                    )
+                    {
+                        "title": row.get("title", "Unknown"),
+                        "content": content,
+                        "similarity": row.get("similarity", 0.0),
+                        "metadata": row.get("metadata", {})
+                    }
                 )
 
         # 5. Generate LLM answer
@@ -63,7 +68,7 @@ async def query_documents(request: QueryRequest):
             "Always respond in the same language as the question. "
             "Do not answer questions unrelated to the documents.\n\n"
             "Context:\n" + context + "\n\n"
-            "Question: " + request.query
+            "Question: " + query_text
         )
         
         groq_client = GroqClient(api_key=settings.GROQ_API_KEY)
@@ -74,10 +79,15 @@ async def query_documents(request: QueryRequest):
         response_text = completion.choices[0].message.content
         answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
 
-        return QueryResponse(
-            query=request.query,
-            answer=answer,
-            results=results
+        data = {
+            "query": query_text,
+            "answer": answer,
+            "results": results
+        }
+
+        return Response(
+            content=json.dumps(data, ensure_ascii=False),
+            media_type="application/json; charset=utf-8"
         )
 
     except Exception as e:
