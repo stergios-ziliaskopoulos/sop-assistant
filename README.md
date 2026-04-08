@@ -1,6 +1,8 @@
 # SOP Assistant — Production-Ready RAG System
 
-![SOP Assistant Demo](https://via.placeholder.com/800x400.png?text=Add+Screenshot+Here) <img width="959" height="417" alt="image" src="https://github.com/user-attachments/assets/7eb89c60-4617-4599-ab67-a5b75a16bd88" />
+![SOP Assistant Demo](https://via.placeholder.com/800x400.png?text=Add+Screenshot+Here) 
+
+<img width="959" height="417" alt="image" src="https://github.com/user-attachments/assets/7eb89c60-4617-4599-ab67-a5b75a16bd88" />
 
 
 ## 📖 Overview
