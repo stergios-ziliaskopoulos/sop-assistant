@@ -28,4 +28,8 @@ COPY ./app ./app
 RUN useradd -m myuser
 USER myuser
 
+ENV PYTHONIOENCODING=utf-8
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

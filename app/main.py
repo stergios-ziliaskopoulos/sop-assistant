@@ -1,3 +1,6 @@
+import sys
+sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
+
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from app.api import health, ingest, query, upload, documents

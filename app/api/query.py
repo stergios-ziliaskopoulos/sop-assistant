@@ -1,3 +1,14 @@
+import sys
+import locale
+try:
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+except Exception:
+    try:
+        locale.setlocale(locale.LC_ALL, 'C.UTF-8')
+    except Exception:
+        pass
+sys.stdout.reconfigure(encoding='utf-8')
+
 from fastapi import APIRouter, HTTPException
 from supabase import create_async_client
 from app.models.schemas import QueryRequest, QueryResponse, SourceDocument
@@ -60,7 +71,8 @@ async def query_documents(request: QueryRequest):
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}]
         )
-        answer = completion.choices[0].message.content
+        response_text = completion.choices[0].message.content
+        answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
 
         return QueryResponse(
             query=request.query,
