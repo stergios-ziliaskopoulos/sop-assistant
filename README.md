@@ -1,6 +1,7 @@
 # SOP Assistant — Production-Ready RAG System
 
-![SOP Assistant Demo](https://via.placeholder.com/800x400.png?text=Add+Screenshot+Here) *(Add your application screenshot here)*
+![SOP Assistant Demo](https://via.placeholder.com/800x400.png?text=Add+Screenshot+Here) <img width="959" height="417" alt="image" src="https://github.com/user-attachments/assets/7eb89c60-4617-4599-ab67-a5b75a16bd88" />
+
 
 ## 📖 Overview
 The **SOP Assistant** is a production-grade, intelligent Retrieval-Augmented Generation (RAG) system designed to provide instant, accurate answers based on your company's internal documents. By leveraging advanced semantic search and large language models (LLMs), it empowers users to query knowledge bases seamlessly in natural language.
