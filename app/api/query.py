@@ -98,6 +98,6 @@ async def query_documents(request: QueryRequest):
         full_trace = traceback.format_exc()
         logging.error(f"FULL ERROR: {full_trace}")
         return JSONResponse(
-            content={"error": str(e), "traceback": full_trace},
+            content={"error": "An internal server error occurred.", "details": str(e)},
             status_code=500
         )
