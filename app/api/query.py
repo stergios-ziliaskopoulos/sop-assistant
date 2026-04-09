@@ -9,12 +9,13 @@ except Exception:
         pass
 sys.stdout.reconfigure(encoding='utf-8')
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import Response, JSONResponse
 from supabase import create_async_client
 from app.models.schemas import QueryRequest, QueryResponse, SourceDocument
 from app.core.config import settings
 from app.core.embeddings import generate_embedding
+from app.core.auth import get_current_user
 import os
 import json
 import traceback
@@ -26,7 +27,7 @@ logging.basicConfig(level=logging.DEBUG)
 router = APIRouter()
 
 @router.post("/query")
-async def query_documents(request: QueryRequest):
+async def query_documents(request: QueryRequest, user=Depends(get_current_user)):
     try:
         # Decode user query with utf-8
         query_text = request.query.encode('utf-8', errors='ignore').decode('utf-8')
@@ -43,7 +44,8 @@ async def query_documents(request: QueryRequest):
             {
                 "query_embedding": query_embedding,
                 "match_threshold": 0.0,
-                "match_count": request.top_k
+                "match_count": request.top_k,
+                "filter_tenant_id": user.id,
             }
         ).execute()
 

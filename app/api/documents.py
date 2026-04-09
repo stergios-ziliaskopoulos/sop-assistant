@@ -1,11 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from supabase import create_async_client
 from app.core.config import settings
+from app.core.auth import get_current_user
 
 router = APIRouter()
 
 @router.get("/documents")
-async def get_documents():
+async def get_documents(user=Depends(get_current_user)):
     try:
         supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
         
@@ -14,7 +15,7 @@ async def get_documents():
         # the grouping natively in PostgreSQL:
         # SELECT title, COUNT(*) as chunks, MIN(created_at) as uploaded_at FROM documents GROUP BY title ORDER BY uploaded_at DESC;
         
-        response = await supabase.table("documents").select("title, created_at").execute()
+        response = await supabase.table("documents").select("title, created_at").eq("tenant_id", user.id).execute()
         
         doc_map = {}
         if response.data:
@@ -38,11 +39,11 @@ async def get_documents():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/documents/{title}")
-async def delete_document(title: str):
+async def delete_document(title: str, user=Depends(get_current_user)):
     try:
         supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
         # Delete all chunks for this title
-        response = await supabase.table("documents").delete().eq("title", title).execute()
+        response = await supabase.table("documents").delete().eq("title", title).eq("tenant_id", user.id).execute()
         
         # PostgREST delete returns the deleted rows if header Prefer: return=representation is set, 
         # but the supabase-py client handles returning the data if configured. 

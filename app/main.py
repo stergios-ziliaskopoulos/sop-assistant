@@ -3,7 +3,7 @@ sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from app.api import health, ingest, query, upload, documents
+from app.api import health, ingest, query, upload, documents, auth
 from app.core.config import settings
 import os
 
@@ -29,6 +29,7 @@ app.include_router(ingest.router, prefix="/api/v1", tags=["ingest"])
 app.include_router(query.router, prefix="/api/v1", tags=["query"])
 app.include_router(upload.router, prefix="/api/v1", tags=["upload"])
 app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
+app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 
 # Ensure static directory exists
 os.makedirs("app/static", exist_ok=True)

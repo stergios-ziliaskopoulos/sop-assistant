@@ -9,7 +9,7 @@ except Exception:
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from fastapi.responses import JSONResponse
 import fitz  # PyMuPDF
 import docx
@@ -25,6 +25,7 @@ from app.api.ingest import chunk_text
 from app.core.config import settings
 from app.core.embeddings import generate_embedding
 from supabase import create_async_client
+from app.core.auth import get_current_user
 
 router = APIRouter()
 
@@ -50,7 +51,7 @@ async def detect_and_extract(file_bytes: bytes, filename: str, temp_path: str) -
     return content
 
 @router.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), user=Depends(get_current_user)):
     temp_path = None
     try:
         file_bytes = await file.read()
@@ -80,7 +81,8 @@ async def upload_document(file: UploadFile = File(...)):
                 "title": file.filename,
                 "content": chunk,
                 "embedding": embedding,
-                "metadata": {"chunk_index": i, "source_type": "upload"}
+                "metadata": {"chunk_index": i, "source_type": "upload"},
+                "tenant_id": user.id,
             })
             
         await supabase.table("documents").insert(records).execute()
