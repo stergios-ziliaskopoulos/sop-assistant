@@ -11,3 +11,4 @@ pymupdf
 python-docx
 python-multipart
 groq
+email-validator
