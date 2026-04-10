@@ -2,6 +2,7 @@ import sys
 sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.api import health, ingest, query, upload, documents, auth
 from app.core.config import settings
@@ -11,6 +12,19 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Production-grade RAG system for company documents",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://stergios-ziliaskopoulos.github.io",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:5500",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.middleware("http")
