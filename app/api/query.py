@@ -16,9 +16,12 @@ from app.models.schemas import QueryRequest, QueryResponse, SourceDocument
 from app.core.config import settings
 from app.core.embeddings import generate_embedding
 from app.core.auth import get_current_user
+from pydantic import BaseModel, EmailStr
 import os
 import json
 import time
+import smtplib
+from email.mime.text import MIMEText
 import traceback
 import logging
 from groq import Groq as GroqClient
@@ -31,6 +34,27 @@ DEMO_TENANT_ID = "5ad31d01-92e7-4386-8b49-c294afb61ce5"
 DEMO_RATE_LIMIT = 10
 DEMO_RATE_WINDOW = 3600  # 1 hour in seconds
 _demo_rate_store: dict[str, list[float]] = {}
+
+HANDOFF_PHRASES = [
+    "i could not find",
+    "i don't know",
+    "not in the documents",
+    "cannot find information",
+    "couldn't find",
+    "could not find this information",
+    "not in the context",
+]
+
+
+def _needs_handoff(answer: str) -> bool:
+    answer_lower = answer.lower()
+    return any(phrase in answer_lower for phrase in HANDOFF_PHRASES)
+
+
+class HandoffRequest(BaseModel):
+    email: EmailStr
+    question: str
+    chat_context: str
 
 @router.post("/query")
 async def query_documents(request: QueryRequest, user=Depends(get_current_user)):
@@ -180,16 +204,66 @@ async def demo_query(request: QueryRequest, req: Request):
         response_text = completion.choices[0].message.content
         answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
 
+        handoff = _needs_handoff(answer)
         data = {
             "query": query_text,
             "answer": answer,
-            "sources": results
+            "sources": results,
+            "needs_handoff": handoff,
         }
+        if handoff:
+            data["handoff_message"] = (
+                "I couldn't find this in our docs. "
+                "Can I get your email so our team can help you directly?"
+            )
 
         return Response(
             content=json.dumps(data, ensure_ascii=False),
             media_type="application/json; charset=utf-8"
         )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        full_trace = traceback.format_exc()
+        logging.error(f"FULL ERROR: {full_trace}")
+        return JSONResponse(
+            content={"error": "An internal server error occurred.", "details": str(e)},
+            status_code=500
+        )
+
+
+@router.post("/demo/handoff")
+async def demo_handoff(request: HandoffRequest, req: Request):
+    client_ip = req.client.host if req.client else "unknown"
+    _check_demo_rate_limit(client_ip)
+
+    try:
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        await supabase.table("handoff_requests").insert({
+            "email": request.email,
+            "question": request.question,
+            "chat_context": request.chat_context,
+            "status": "pending",
+        }).execute()
+
+        if settings.GMAIL_USER and settings.GMAIL_APP_PASSWORD:
+            body = (
+                f"Customer email: {request.email}\n"
+                f"Question: {request.question}\n"
+                f"Chat context: {request.chat_context}"
+            )
+            msg = MIMEText(body, "plain", "utf-8")
+            msg["Subject"] = "FirstLine AI - Human needed"
+            msg["From"] = settings.GMAIL_USER
+            msg["To"] = "szilias@gmail.com"
+
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.starttls()
+                server.login(settings.GMAIL_USER, settings.GMAIL_APP_PASSWORD)
+                server.send_message(msg)
+
+        return {"status": "ok", "message": "Our team will contact you shortly"}
 
     except HTTPException:
         raise
