@@ -20,8 +20,7 @@ from pydantic import BaseModel, EmailStr
 import os
 import json
 import time
-import smtplib
-from email.mime.text import MIMEText
+import httpx
 import traceback
 import logging
 from groq import Groq as GroqClient
@@ -247,21 +246,22 @@ async def demo_handoff(request: HandoffRequest, req: Request):
             "status": "pending",
         }).execute()
 
-        if settings.GMAIL_USER and settings.GMAIL_APP_PASSWORD:
-            body = (
-                f"Customer email: {request.email}\n"
-                f"Question: {request.question}\n"
-                f"Chat context: {request.chat_context}"
-            )
-            msg = MIMEText(body, "plain", "utf-8")
-            msg["Subject"] = "FirstLine AI - Human needed"
-            msg["From"] = settings.GMAIL_USER
-            msg["To"] = "szilias@gmail.com"
-
-            with smtplib.SMTP("smtp.gmail.com", 587) as server:
-                server.starttls()
-                server.login(settings.GMAIL_USER, settings.GMAIL_APP_PASSWORD)
-                server.send_message(msg)
+        if settings.RESEND_API_KEY:
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
+                    json={
+                        "from": "onboarding@resend.dev",
+                        "to": ["szilias@gmail.com"],
+                        "subject": "FirstLine AI - Human needed",
+                        "text": (
+                            f"Customer email: {request.email}\n"
+                            f"Question: {request.question}\n"
+                            f"Chat context: {request.chat_context}"
+                        ),
+                    },
+                )
 
         return {"status": "ok", "message": "Our team will contact you shortly"}
 

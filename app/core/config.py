@@ -17,9 +17,8 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
     
-    # Gmail SMTP (for handoff notifications)
-    GMAIL_USER: str | None = None
-    GMAIL_APP_PASSWORD: str | None = None
+    # Resend (for handoff notifications)
+    RESEND_API_KEY: str | None = None
 
     # Ragas/Evaluation (optional)
     RAGAS_API_KEY: str | None = None
