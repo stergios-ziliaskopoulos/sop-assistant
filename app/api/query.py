@@ -171,6 +171,8 @@ async def query_documents(request: QueryRequest, user=Depends(get_current_user))
         )
         response_text = completion.choices[0].message.content
         answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
+        source_name = results[0]["title"] if results else "Unknown"
+        answer += f"\n\n📄 Source: [{source_name}]"
 
         await _log_query(supabase, query_text, max_similarity, False)
 
@@ -282,6 +284,8 @@ async def demo_query(request: QueryRequest, req: Request):
         )
         response_text = completion.choices[0].message.content
         answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
+        source_name = results[0]["title"] if results else "Unknown"
+        answer += f"\n\n📄 Source: [{source_name}]"
 
         handoff = _needs_handoff(answer)
         await _log_query(supabase, query_text, max_similarity, handoff)
