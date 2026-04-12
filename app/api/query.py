@@ -45,6 +45,45 @@ HANDOFF_PHRASES = [
 ]
 
 
+CONFIDENCE_LOW = 0.72
+CONFIDENCE_HIGH = 0.82
+
+CONSERVATIVE_PROMPT = (
+    "You are a helpful assistant for company documents. "
+    "Answer based on the context provided below, but be cautious — the match confidence is moderate. "
+    "Preface your answer with: 'Based on the closest information I found:' "
+    "Always cite which document section your answer comes from. "
+    "If you are not confident, say so clearly. "
+    "Always respond in the same language as the question. "
+    "Do not answer questions unrelated to the documents.\n\n"
+)
+
+NORMAL_PROMPT = (
+    "You are a helpful assistant for company documents. "
+    "Answer ONLY based on the context provided below. "
+    "Always cite which document section your answer comes from. "
+    "If the answer is not in the context, say: 'I could not find this information in the uploaded documents.' "
+    "Always respond in the same language as the question. "
+    "Do not answer questions unrelated to the documents.\n\n"
+)
+
+HANDOFF_ANSWER = (
+    "I don't have enough confidence in the available documents to answer this question. "
+    "Let me connect you with our team for a reliable answer."
+)
+
+
+async def _log_query(supabase, query: str, confidence_score: float, triggered_handoff: bool):
+    try:
+        await supabase.table("query_logs").insert({
+            "query": query,
+            "confidence_score": confidence_score,
+            "triggered_handoff": triggered_handoff,
+        }).execute()
+    except Exception as e:
+        logging.error(f"Failed to log query: {e}")
+
+
 def _needs_handoff(answer: str) -> bool:
     answer_lower = answer.lower()
     return any(phrase in answer_lower for phrase in HANDOFF_PHRASES)
@@ -78,34 +117,52 @@ async def query_documents(request: QueryRequest, user=Depends(get_current_user))
             }
         ).execute()
 
-        # 4. Format the response
+        # 4. Format the response and calculate confidence
         results = []
         context_texts = []
+        similarities = []
         if response.data:
             for row in response.data:
                 content = row.get("content", "")
+                similarity = row.get("similarity", 0.0)
                 context_texts.append(content)
+                similarities.append(similarity)
                 results.append(
                     {
                         "title": row.get("title", "Unknown"),
                         "content": content,
-                        "similarity": row.get("similarity", 0.0),
+                        "similarity": similarity,
                         "metadata": row.get("metadata", {})
                     }
                 )
 
-        # 5. Generate LLM answer
+        max_similarity = max(similarities) if similarities else 0.0
+
+        # 5. Confidence-based routing
+        if max_similarity < CONFIDENCE_LOW:
+            await _log_query(supabase, query_text, max_similarity, True)
+            data = {
+                "query": query_text,
+                "answer": HANDOFF_ANSWER,
+                "results": results,
+                "confidence_score": max_similarity,
+                "needs_handoff": True,
+                "handoff_message": (
+                    "I couldn't find this in our docs. "
+                    "Can I get your email so our team can help you directly?"
+                ),
+            }
+            return Response(
+                content=json.dumps(data, ensure_ascii=False),
+                media_type="application/json; charset=utf-8"
+            )
+
         context = "\n\n".join(context_texts)
-        prompt = (
-            "You are a helpful assistant for company documents. "
-            "Answer ONLY based on the context provided below. "
-            "If the answer is not in the context, say: 'I could not find this information in the uploaded documents.' "
-            "Always respond in the same language as the question. "
-            "Do not answer questions unrelated to the documents.\n\n"
-            "Context:\n" + context + "\n\n"
-            "Question: " + query_text
-        )
-        
+        if max_similarity < CONFIDENCE_HIGH:
+            prompt = CONSERVATIVE_PROMPT + "Context:\n" + context + "\n\nQuestion: " + query_text
+        else:
+            prompt = NORMAL_PROMPT + "Context:\n" + context + "\n\nQuestion: " + query_text
+
         groq_client = GroqClient(api_key=settings.GROQ_API_KEY)
         completion = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -114,10 +171,14 @@ async def query_documents(request: QueryRequest, user=Depends(get_current_user))
         response_text = completion.choices[0].message.content
         answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
 
+        await _log_query(supabase, query_text, max_similarity, False)
+
         data = {
             "query": query_text,
             "answer": answer,
-            "results": results
+            "results": results,
+            "confidence_score": max_similarity,
+            "needs_handoff": False,
         }
 
         return Response(
@@ -171,29 +232,47 @@ async def demo_query(request: QueryRequest, req: Request):
 
         results = []
         context_texts = []
+        similarities = []
         if response.data:
             for row in response.data:
                 content = row.get("content", "")
+                similarity = row.get("similarity", 0.0)
                 context_texts.append(content)
+                similarities.append(similarity)
                 results.append(
                     {
                         "title": row.get("title", "Unknown"),
                         "content": content,
-                        "similarity": row.get("similarity", 0.0),
+                        "similarity": similarity,
                         "metadata": row.get("metadata", {})
                     }
                 )
 
+        max_similarity = max(similarities) if similarities else 0.0
+
+        if max_similarity < CONFIDENCE_LOW:
+            await _log_query(supabase, query_text, max_similarity, True)
+            data = {
+                "query": query_text,
+                "answer": HANDOFF_ANSWER,
+                "sources": results,
+                "confidence_score": max_similarity,
+                "needs_handoff": True,
+                "handoff_message": (
+                    "I couldn't find this in our docs. "
+                    "Can I get your email so our team can help you directly?"
+                ),
+            }
+            return Response(
+                content=json.dumps(data, ensure_ascii=False),
+                media_type="application/json; charset=utf-8"
+            )
+
         context = "\n\n".join(context_texts)
-        prompt = (
-            "You are a helpful assistant for company documents. "
-            "Answer ONLY based on the context provided below. "
-            "If the answer is not in the context, say: 'I could not find this information in the uploaded documents.' "
-            "Always respond in the same language as the question. "
-            "Do not answer questions unrelated to the documents.\n\n"
-            "Context:\n" + context + "\n\n"
-            "Question: " + query_text
-        )
+        if max_similarity < CONFIDENCE_HIGH:
+            prompt = CONSERVATIVE_PROMPT + "Context:\n" + context + "\n\nQuestion: " + query_text
+        else:
+            prompt = NORMAL_PROMPT + "Context:\n" + context + "\n\nQuestion: " + query_text
 
         groq_client = GroqClient(api_key=settings.GROQ_API_KEY)
         completion = groq_client.chat.completions.create(
@@ -204,10 +283,13 @@ async def demo_query(request: QueryRequest, req: Request):
         answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
 
         handoff = _needs_handoff(answer)
+        await _log_query(supabase, query_text, max_similarity, handoff)
+
         data = {
             "query": query_text,
             "answer": answer,
             "sources": results,
+            "confidence_score": max_similarity,
             "needs_handoff": handoff,
         }
         if handoff:
