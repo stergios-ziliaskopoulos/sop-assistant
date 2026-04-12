@@ -411,3 +411,55 @@ async def demo_handoff(request: HandoffRequest, req: Request):
             content={"error": "An internal server error occurred.", "details": str(e)},
             status_code=500
         )
+
+
+@router.get("/admin/stats")
+async def admin_stats(req: Request):
+    admin_key = req.headers.get("X-Admin-Key")
+    if admin_key != settings.ADMIN_KEY:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+
+    try:
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+
+        logs_resp = await supabase.table("query_logs").select("confidence_score, triggered_handoff").execute()
+        rows = logs_resp.data or []
+
+        total_queries = len(rows)
+        answered = sum(1 for r in rows if not r["triggered_handoff"])
+        handed_off = sum(1 for r in rows if r["triggered_handoff"])
+        avg_confidence = (
+            sum(r["confidence_score"] for r in rows) / total_queries
+            if total_queries > 0 else 0.0
+        )
+        resolution_rate = (answered / total_queries * 100) if total_queries > 0 else 0.0
+
+        handoffs_resp = await supabase.table("handoff_requests").select("status").execute()
+        handoff_rows = handoffs_resp.data or []
+
+        total_handoffs = len(handoff_rows)
+        pending_handoffs = sum(1 for r in handoff_rows if r["status"] == "pending")
+
+        return {
+            "query_stats": {
+                "total_queries": total_queries,
+                "answered": answered,
+                "handed_off": handed_off,
+                "avg_confidence": round(avg_confidence, 4),
+                "resolution_rate": round(resolution_rate, 2),
+            },
+            "handoff_stats": {
+                "total_handoffs": total_handoffs,
+                "pending_handoffs": pending_handoffs,
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        full_trace = traceback.format_exc()
+        logging.error(f"FULL ERROR: {full_trace}")
+        return JSONResponse(
+            content={"error": "An internal server error occurred.", "details": str(e)},
+            status_code=500
+        )
