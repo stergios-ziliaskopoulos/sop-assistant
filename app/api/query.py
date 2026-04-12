@@ -17,6 +17,8 @@ from app.core.config import settings
 from app.core.embeddings import generate_embedding
 from app.core.auth import get_current_user
 from pydantic import BaseModel, EmailStr
+from typing import Optional, List
+import uuid
 import os
 import json
 import time
@@ -90,10 +92,23 @@ def _needs_handoff(answer: str) -> bool:
     return any(phrase in answer_lower for phrase in HANDOFF_PHRASES)
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class DemoQueryRequest(BaseModel):
+    query: str
+    top_k: int = 5
+    session_id: Optional[str] = None
+    history: Optional[List[ChatMessage]] = None
+
+
 class HandoffRequest(BaseModel):
     email: EmailStr
     question: str
     chat_context: str
+    history: Optional[List[ChatMessage]] = None
 
 @router.post("/query")
 async def query_documents(request: QueryRequest, user=Depends(get_current_user)):
@@ -212,9 +227,14 @@ def _check_demo_rate_limit(ip: str):
 
 
 @router.post("/demo/query")
-async def demo_query(request: QueryRequest, req: Request):
+async def demo_query(request: DemoQueryRequest, req: Request):
     client_ip = req.client.host if req.client else "unknown"
     _check_demo_rate_limit(client_ip)
+
+    session_id = request.session_id or str(uuid.uuid4())
+    history = [msg.model_dump() for msg in request.history] if request.history else []
+    # Keep only last 10 messages for context window
+    recent_history = history[-10:]
 
     try:
         query_text = request.query.encode('utf-8', errors='ignore').decode('utf-8')
@@ -253,8 +273,12 @@ async def demo_query(request: QueryRequest, req: Request):
 
         max_similarity = max(similarities) if similarities else 0.0
 
+        # Build updated history with current user message
+        updated_history = recent_history + [{"role": "user", "content": query_text}]
+
         if max_similarity < CONFIDENCE_LOW:
             await _log_query(supabase, query_text, max_similarity, True)
+            updated_history.append({"role": "assistant", "content": HANDOFF_ANSWER})
             data = {
                 "query": query_text,
                 "answer": HANDOFF_ANSWER,
@@ -265,6 +289,8 @@ async def demo_query(request: QueryRequest, req: Request):
                     "I couldn't find this in our docs. "
                     "Can I get your email so our team can help you directly?"
                 ),
+                "session_id": session_id,
+                "history": updated_history,
             }
             return Response(
                 content=json.dumps(data, ensure_ascii=False),
@@ -272,10 +298,19 @@ async def demo_query(request: QueryRequest, req: Request):
             )
 
         context = "\n\n".join(context_texts)
+
+        # Build conversation history string
+        history_str = ""
+        if recent_history:
+            history_str = "CONVERSATION HISTORY:\n"
+            for msg in recent_history:
+                history_str += f"{msg['role'].upper()}: {msg['content']}\n"
+            history_str += "\n"
+
         if max_similarity < CONFIDENCE_HIGH:
-            prompt = CONSERVATIVE_PROMPT + "Context:\n" + context + "\n\nQuestion: " + query_text
+            prompt = CONSERVATIVE_PROMPT + history_str + "Context:\n" + context + "\n\nQuestion: " + query_text
         else:
-            prompt = NORMAL_PROMPT + "Context:\n" + context + "\n\nQuestion: " + query_text
+            prompt = NORMAL_PROMPT + history_str + "Context:\n" + context + "\n\nQuestion: " + query_text
 
         groq_client = GroqClient(api_key=settings.GROQ_API_KEY)
         completion = groq_client.chat.completions.create(
@@ -290,12 +325,16 @@ async def demo_query(request: QueryRequest, req: Request):
         handoff = _needs_handoff(answer)
         await _log_query(supabase, query_text, max_similarity, handoff)
 
+        updated_history.append({"role": "assistant", "content": answer})
+
         data = {
             "query": query_text,
             "answer": answer,
             "sources": results,
             "confidence_score": max_similarity,
             "needs_handoff": handoff,
+            "session_id": session_id,
+            "history": updated_history,
         }
         if handoff:
             data["handoff_message"] = (
@@ -325,15 +364,30 @@ async def demo_handoff(request: HandoffRequest, req: Request):
     _check_demo_rate_limit(client_ip)
 
     try:
+        history_text = ""
+        if request.history:
+            history_text = "\n".join(
+                f"{msg.role.upper()}: {msg.content}" for msg in request.history
+            )
+
         supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
         await supabase.table("handoff_requests").insert({
             "email": request.email,
             "question": request.question,
             "chat_context": request.chat_context,
+            "history": history_text or None,
             "status": "pending",
         }).execute()
 
         if settings.RESEND_API_KEY:
+            email_body = (
+                f"Customer email: {request.email}\n"
+                f"Question: {request.question}\n"
+                f"Chat context: {request.chat_context}"
+            )
+            if history_text:
+                email_body += f"\n\nFull conversation history:\n{history_text}"
+
             async with httpx.AsyncClient() as client:
                 await client.post(
                     "https://api.resend.com/emails",
@@ -342,11 +396,7 @@ async def demo_handoff(request: HandoffRequest, req: Request):
                         "from": "onboarding@resend.dev",
                         "to": ["szilias@gmail.com"],
                         "subject": "FirstLine AI - Human needed",
-                        "text": (
-                            f"Customer email: {request.email}\n"
-                            f"Question: {request.question}\n"
-                            f"Chat context: {request.chat_context}"
-                        ),
+                        "text": email_body,
                     },
                 )
 
