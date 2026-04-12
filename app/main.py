@@ -23,6 +23,8 @@ app.add_middleware(
         "http://127.0.0.1:5500",
         "https://firstline-ai.vercel.app",
         "https://firstline-ai-beta.vercel.app",
+        "https://trustqueue.com",
+        "https://www.trustqueue.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
