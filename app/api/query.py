@@ -395,7 +395,7 @@ async def demo_handoff(request: HandoffRequest, req: Request):
                     json={
                         "from": "onboarding@resend.dev",
                         "to": ["szilias@gmail.com"],
-                        "subject": "FirstLine AI - Human needed",
+                        "subject": "TrustQueue - Human needed",
                         "text": email_body,
                     },
                 )
