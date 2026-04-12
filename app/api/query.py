@@ -45,8 +45,8 @@ HANDOFF_PHRASES = [
 ]
 
 
-CONFIDENCE_LOW = 0.72
-CONFIDENCE_HIGH = 0.82
+CONFIDENCE_LOW = 0.50
+CONFIDENCE_HIGH = 0.65
 
 CONSERVATIVE_PROMPT = (
     "You are a helpful assistant for company documents. "
@@ -74,6 +74,7 @@ HANDOFF_ANSWER = (
 
 
 async def _log_query(supabase, query: str, confidence_score: float, triggered_handoff: bool):
+    logging.info(f"[CONFIDENCE] query=\"{query[:80]}\" max_similarity={confidence_score:.4f} handoff={triggered_handoff}")
     try:
         await supabase.table("query_logs").insert({
             "query": query,
