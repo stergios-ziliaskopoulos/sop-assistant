@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Resend (for handoff notifications)
     RESEND_API_KEY: str | None = None
 
+    # Slack
+    SLACK_WEBHOOK_URL: str | None = None
+
     # Admin
     ADMIN_KEY: str = "changeme"
 

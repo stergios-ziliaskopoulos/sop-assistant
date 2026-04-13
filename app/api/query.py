@@ -400,6 +400,38 @@ async def demo_handoff(request: HandoffRequest, req: Request):
                     },
                 )
 
+        if settings.SLACK_WEBHOOK_URL:
+            conversation = history_text or request.chat_context
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    settings.SLACK_WEBHOOK_URL,
+                    json={
+                        "text": "\ud83d\udea8 *TrustQueue \u2014 Human Needed*",
+                        "blocks": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": (
+                                        f"\ud83d\udea8 *New support escalation*\n"
+                                        f"*Customer:* {request.email}\n"
+                                        f"*Question:* {request.question}\n"
+                                        f"*Confidence Score:* low (below threshold)\n"
+                                        f"*Trigger:* confidence-based handoff"
+                                    ),
+                                },
+                            },
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": f"*Conversation:*\n{conversation}",
+                                },
+                            },
+                        ],
+                    },
+                )
+
         return {"status": "ok", "message": "Our team will contact you shortly"}
 
     except HTTPException:
