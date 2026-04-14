@@ -23,9 +23,11 @@ import os
 import json
 import time
 import httpx
+import asyncio
 import traceback
 import logging
 from groq import Groq as GroqClient
+from app.services.slack_notifier import notify_handoff
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -400,37 +402,15 @@ async def demo_handoff(request: HandoffRequest, req: Request):
                     },
                 )
 
-        if settings.SLACK_WEBHOOK_URL:
-            conversation = history_text or request.chat_context
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    settings.SLACK_WEBHOOK_URL,
-                    json={
-                        "text": "\ud83d\udea8 *TrustQueue \u2014 Human Needed*",
-                        "blocks": [
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": (
-                                        f"\ud83d\udea8 *New support escalation*\n"
-                                        f"*Customer:* {request.email}\n"
-                                        f"*Question:* {request.question}\n"
-                                        f"*Confidence Score:* low (below threshold)\n"
-                                        f"*Trigger:* confidence-based handoff"
-                                    ),
-                                },
-                            },
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": f"*Conversation:*\n{conversation}",
-                                },
-                            },
-                        ],
-                    },
-                )
+        # Fire-and-forget Slack notification — never blocks the response
+        asyncio.create_task(
+            notify_handoff(
+                email=request.email,
+                question=request.question,
+                chat_context=history_text or request.chat_context,
+                session_id=getattr(request, "session_id", None),
+            )
+        )
 
         return {"status": "ok", "message": "Our team will contact you shortly"}
 
