@@ -59,7 +59,10 @@ CONSERVATIVE_PROMPT = (
     "Always cite which document section your answer comes from. "
     "If you are not confident, say so clearly. "
     "Always respond in the same language as the question. "
-    "Do not answer questions unrelated to the documents.\n\n"
+    "Do not answer questions unrelated to the documents.\n"
+    "If the user's question asks for a SPECIFIC value, number, timeframe, or detail "
+    "that is NOT explicitly stated in the context, output INSUFFICIENT_CONTEXT. "
+    "A partial match is NOT sufficient. The exact answer must be present.\n\n"
 )
 
 NORMAL_PROMPT = (
