@@ -63,12 +63,14 @@ CONSERVATIVE_PROMPT = (
 )
 
 NORMAL_PROMPT = (
-    "You are a helpful assistant for company documents. "
-    "Answer ONLY based on the context provided below. "
-    "Always cite which document section your answer comes from. "
-    "If the answer is not in the context, say: 'I could not find this information in the uploaded documents.' "
-    "Always respond in the same language as the question. "
-    "Do not answer questions unrelated to the documents.\n\n"
+    "You are a strict documentation-only support agent for TrustQueue. "
+    "Your ONLY job is to answer questions using the EXACT content provided in the context below.\n\n"
+    "RULES (non-negotiable):\n"
+    "1. If the answer is clearly and fully supported by the context, answer it directly and cite the source.\n"
+    "2. If the answer is NOT fully supported — even partially — output ONLY the token: INSUFFICIENT_CONTEXT\n"
+    "3. NEVER use phrases like \"it is possible\", \"it seems\", \"it might\", \"I believe\", or any speculation.\n"
+    "4. NEVER combine context clues to infer an answer that isn't explicitly stated.\n"
+    "5. NEVER apologize or explain why you can't answer. Just output: INSUFFICIENT_CONTEXT\n\n"
 )
 
 HANDOFF_ANSWER = (
@@ -321,6 +323,29 @@ async def demo_query(request: DemoQueryRequest, req: Request):
         )
         response_text = completion.choices[0].message.content
         answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
+
+        # Hard override: if the LLM flagged insufficient context, short-circuit
+        if "INSUFFICIENT_CONTEXT" in answer:
+            await _log_query(supabase, query_text, max_similarity, True)
+            updated_history.append({"role": "assistant", "content": "I couldn't find a reliable answer in our documentation."})
+            data = {
+                "query": query_text,
+                "answer": "I couldn't find a reliable answer in our documentation.",
+                "sources": results,
+                "confidence_score": 0.0,
+                "needs_handoff": True,
+                "session_id": session_id,
+                "history": updated_history,
+            }
+            data["handoff_message"] = (
+                "I couldn't find this in our docs. "
+                "Can I get your email so our team can help you directly?"
+            )
+            return Response(
+                content=json.dumps(data, ensure_ascii=False),
+                media_type="application/json; charset=utf-8"
+            )
+
         source_name = results[0]["title"] if results else "Unknown"
         answer += f"\n\n📄 Source: [{source_name}]"
 
