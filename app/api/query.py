@@ -53,16 +53,15 @@ CONFIDENCE_LOW = 0.50
 CONFIDENCE_HIGH = 0.65
 
 CONSERVATIVE_PROMPT = (
-    "You are a helpful assistant for company documents. "
-    "Answer based on the context provided below, but be cautious — the match confidence is moderate. "
+    "You are a strict documentation-only support agent. "
+    "Answer ONLY using the exact content in the context below. "
     "Preface your answer with: 'Based on the closest information I found:' "
     "Always cite which document section your answer comes from. "
-    "If you are not confident, say so clearly. "
     "Always respond in the same language as the question. "
-    "Do not answer questions unrelated to the documents.\n"
-    "If the user's question asks for a SPECIFIC value, number, timeframe, or detail "
-    "that is NOT explicitly stated in the context, output INSUFFICIENT_CONTEXT. "
-    "A partial match is NOT sufficient. The exact answer must be present.\n\n"
+    "If the user asks for a SPECIFIC value, number, timeframe, or detail "
+    "that is NOT explicitly present in the context, output ONLY: INSUFFICIENT_CONTEXT "
+    "A partial match is NOT sufficient. Do NOT speculate. Do NOT say 'I am not confident'. "
+    "Do NOT say 'it is possible'. If the exact answer is not there: INSUFFICIENT_CONTEXT\n\n"
 )
 
 NORMAL_PROMPT = (
