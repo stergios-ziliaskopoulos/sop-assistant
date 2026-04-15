@@ -46,7 +46,8 @@ async def ingest_document(request: IngestRequest):
                 "title": request.title,
                 "content": chunk,
                 "embedding": embedding,
-                "metadata": metadata
+                "metadata": metadata,
+                "tenant_id": "5ad31d01-92e7-4386-8b49-c294afb61ce5"
             })
             
         # Execute batch insert
