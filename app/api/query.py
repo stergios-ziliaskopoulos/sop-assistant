@@ -362,9 +362,6 @@ async def demo_query(request: DemoQueryRequest, req: Request):
                 media_type="application/json; charset=utf-8"
             )
 
-        source_name = results[0]["title"] if results else "Unknown"
-        answer += f"\n\n📄 Source: [{source_name}]"
-
         handoff = _needs_handoff(answer)
         await _log_query(supabase, query_text, max_similarity, handoff)
 
