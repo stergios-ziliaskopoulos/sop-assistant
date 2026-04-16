@@ -46,6 +46,7 @@ HANDOFF_PHRASES = [
     "couldn't find",
     "could not find this information",
     "not in the context",
+    "i don't have a reliable answer for this in our documentation.",
 ]
 
 
@@ -74,6 +75,22 @@ NORMAL_PROMPT = (
     "4. NEVER combine context clues to infer an answer that isn't explicitly stated.\n"
     "5. NEVER apologize or explain why you can't answer. Just output: INSUFFICIENT_CONTEXT\n\n"
 )
+
+SYSTEM_PROMPT = """You are TrustQueue, a documentation-aware support assistant.
+You answer ONLY from the context provided below. You do not guess. You do not improvise.
+
+RULES:
+1. Answer the question directly. No preamble. No filler.
+2. Never say: "Based on the context", "According to the document", "Great question", "I found", or any similar phrase.
+3. If the context contains the answer: answer it in 1–3 sentences, plainly.
+4. If confidence is low or context is insufficient: say exactly — "I don't have a reliable answer for this in our documentation. Let me connect you with the team." — then stop.
+5. Source attribution goes at the very end, on its own line, in this exact format:
+   📄 Source: [section-title]
+6. Never answer from memory or general knowledge. Context is the only source of truth.
+
+CONTEXT:
+{context}
+{history}"""
 
 HANDOFF_ANSWER = (
     "I don't have enough confidence in the available documents to answer this question. "
@@ -313,10 +330,7 @@ async def demo_query(request: DemoQueryRequest, req: Request):
                 history_str += f"{msg['role'].upper()}: {msg['content']}\n"
             history_str += "\n"
 
-        if max_similarity < CONFIDENCE_HIGH:
-            prompt = CONSERVATIVE_PROMPT + history_str + "Context:\n" + context + "\n\nQuestion: " + query_text
-        else:
-            prompt = NORMAL_PROMPT + history_str + "Context:\n" + context + "\n\nQuestion: " + query_text
+        prompt = SYSTEM_PROMPT.format(context=context, history=history_str) + "\nQuestion: " + query_text
 
         groq_client = GroqClient(api_key=settings.GROQ_API_KEY)
         completion = groq_client.chat.completions.create(
