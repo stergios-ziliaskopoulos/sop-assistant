@@ -464,6 +464,40 @@ async def demo_handoff(request: HandoffRequest, req: Request):
         )
 
 
+@router.get("/public/stats")
+async def public_stats():
+    try:
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+
+        logs_resp = await supabase.table("query_logs").select("confidence_score, triggered_handoff").execute()
+        rows = logs_resp.data or []
+
+        total_queries = len(rows)
+        answered = sum(1 for r in rows if not r["triggered_handoff"])
+        avg_confidence = (
+            sum(r["confidence_score"] for r in rows) / total_queries
+            if total_queries > 0 else 0.0
+        )
+        resolution_rate = (answered / total_queries * 100) if total_queries > 0 else 0.0
+
+        handoffs_resp = await supabase.table("handoff_requests").select("status").execute()
+        total_handoffs = len(handoffs_resp.data or [])
+
+        return {
+            "total_queries": total_queries,
+            "resolution_rate": round(resolution_rate, 2),
+            "avg_confidence": round(avg_confidence, 4),
+            "total_handoffs": total_handoffs,
+        }
+    except Exception:
+        return {
+            "total_queries": 0,
+            "resolution_rate": 0,
+            "avg_confidence": 0,
+            "total_handoffs": 0,
+        }
+
+
 @router.get("/admin/stats")
 async def admin_stats(req: Request):
     admin_key = req.headers.get("X-Admin-Key")
