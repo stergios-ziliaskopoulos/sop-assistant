@@ -134,6 +134,148 @@ class HandoffRequest(BaseModel):
     chat_context: str
     history: Optional[List[ChatMessage]] = None
 
+
+class TenantQueryRequest(BaseModel):
+    query: str
+    session_id: Optional[str] = None
+    history: Optional[List[ChatMessage]] = None
+
+
+async def _execute_tenant_query(
+    tenant_id: str,
+    query_text_raw: str,
+    top_k: int,
+    session_id: Optional[str],
+    history_msgs: Optional[List[ChatMessage]],
+) -> Response:
+    session_id = session_id or str(uuid.uuid4())
+    history = [msg.model_dump() for msg in history_msgs] if history_msgs else []
+    recent_history = history[-10:]
+
+    query_text = query_text_raw.encode('utf-8', errors='ignore').decode('utf-8')
+
+    query_embedding = await generate_embedding(query_text)
+
+    supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+
+    response = await supabase.rpc(
+        "match_documents",
+        {
+            "query_embedding": query_embedding,
+            "match_threshold": 0.0,
+            "match_count": top_k,
+            "filter_tenant_id": tenant_id,
+        }
+    ).execute()
+
+    results = []
+    context_texts = []
+    similarities = []
+    if response.data:
+        for row in response.data:
+            content = row.get("content", "")
+            similarity = row.get("similarity", 0.0)
+            context_texts.append(content)
+            similarities.append(similarity)
+            results.append(
+                {
+                    "title": row.get("title", "Unknown"),
+                    "content": content,
+                    "similarity": similarity,
+                    "metadata": row.get("metadata", {})
+                }
+            )
+
+    max_similarity = max(similarities) if similarities else 0.0
+
+    updated_history = recent_history + [{"role": "user", "content": query_text}]
+
+    if max_similarity < CONFIDENCE_LOW:
+        await _log_query(supabase, query_text, max_similarity, True)
+        updated_history.append({"role": "assistant", "content": HANDOFF_ANSWER})
+        data = {
+            "query": query_text,
+            "answer": HANDOFF_ANSWER,
+            "sources": results,
+            "confidence_score": max_similarity,
+            "needs_handoff": True,
+            "handoff_message": (
+                "I couldn't find this in our docs. "
+                "Can I get your email so our team can help you directly?"
+            ),
+            "session_id": session_id,
+            "history": updated_history,
+        }
+        return Response(
+            content=json.dumps(data, ensure_ascii=False),
+            media_type="application/json; charset=utf-8"
+        )
+
+    context = "\n\n".join(context_texts)
+
+    history_str = ""
+    if recent_history:
+        history_str = "CONVERSATION HISTORY:\n"
+        for msg in recent_history:
+            history_str += f"{msg['role'].upper()}: {msg['content']}\n"
+        history_str += "\n"
+
+    prompt = SYSTEM_PROMPT.format(context=context, history=history_str) + "\nQuestion: " + query_text
+
+    groq_client = GroqClient(api_key=settings.GROQ_API_KEY)
+    completion = groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    response_text = completion.choices[0].message.content
+    answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
+
+    if "INSUFFICIENT_CONTEXT" in answer:
+        await _log_query(supabase, query_text, max_similarity, True)
+        updated_history.append({"role": "assistant", "content": "I couldn't find a reliable answer in our documentation."})
+        data = {
+            "query": query_text,
+            "answer": "I couldn't find a reliable answer in our documentation.",
+            "sources": results,
+            "confidence_score": 0.0,
+            "needs_handoff": True,
+            "session_id": session_id,
+            "history": updated_history,
+        }
+        data["handoff_message"] = (
+            "I couldn't find this in our docs. "
+            "Can I get your email so our team can help you directly?"
+        )
+        return Response(
+            content=json.dumps(data, ensure_ascii=False),
+            media_type="application/json; charset=utf-8"
+        )
+
+    handoff = _needs_handoff(answer)
+    await _log_query(supabase, query_text, max_similarity, handoff)
+
+    updated_history.append({"role": "assistant", "content": answer})
+
+    data = {
+        "query": query_text,
+        "answer": answer,
+        "sources": results,
+        "confidence_score": max_similarity,
+        "needs_handoff": handoff,
+        "session_id": session_id,
+        "history": updated_history,
+    }
+    if handoff:
+        data["handoff_message"] = (
+            "I couldn't find this in our docs. "
+            "Can I get your email so our team can help you directly?"
+        )
+
+    return Response(
+        content=json.dumps(data, ensure_ascii=False),
+        media_type="application/json; charset=utf-8"
+    )
+
 @router.post("/query")
 async def query_documents(request: QueryRequest, user=Depends(get_current_user)):
     try:
@@ -255,139 +397,40 @@ async def demo_query(request: DemoQueryRequest, req: Request):
     client_ip = req.client.host if req.client else "unknown"
     _check_demo_rate_limit(client_ip)
 
-    session_id = request.session_id or str(uuid.uuid4())
-    history = [msg.model_dump() for msg in request.history] if request.history else []
-    # Keep only last 10 messages for context window
-    recent_history = history[-10:]
+    try:
+        return await _execute_tenant_query(
+            tenant_id=DEMO_TENANT_ID,
+            query_text_raw=request.query,
+            top_k=request.top_k,
+            session_id=request.session_id,
+            history_msgs=request.history,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        full_trace = traceback.format_exc()
+        logging.error(f"FULL ERROR: {full_trace}")
+        return JSONResponse(
+            content={"error": "An internal server error occurred.", "details": str(e)},
+            status_code=500
+        )
+
+
+@router.post("/query/{tenant_id}")
+async def tenant_query(tenant_id: str, request: TenantQueryRequest):
+    try:
+        uuid.UUID(tenant_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid tenant_id: must be a UUID")
 
     try:
-        query_text = request.query.encode('utf-8', errors='ignore').decode('utf-8')
-
-        query_embedding = await generate_embedding(query_text)
-
-        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
-
-        response = await supabase.rpc(
-            "match_documents",
-            {
-                "query_embedding": query_embedding,
-                "match_threshold": 0.0,
-                "match_count": request.top_k,
-                "filter_tenant_id": DEMO_TENANT_ID,
-            }
-        ).execute()
-
-        results = []
-        context_texts = []
-        similarities = []
-        if response.data:
-            for row in response.data:
-                content = row.get("content", "")
-                similarity = row.get("similarity", 0.0)
-                context_texts.append(content)
-                similarities.append(similarity)
-                results.append(
-                    {
-                        "title": row.get("title", "Unknown"),
-                        "content": content,
-                        "similarity": similarity,
-                        "metadata": row.get("metadata", {})
-                    }
-                )
-
-        max_similarity = max(similarities) if similarities else 0.0
-
-        # Build updated history with current user message
-        updated_history = recent_history + [{"role": "user", "content": query_text}]
-
-        if max_similarity < CONFIDENCE_LOW:
-            await _log_query(supabase, query_text, max_similarity, True)
-            updated_history.append({"role": "assistant", "content": HANDOFF_ANSWER})
-            data = {
-                "query": query_text,
-                "answer": HANDOFF_ANSWER,
-                "sources": results,
-                "confidence_score": max_similarity,
-                "needs_handoff": True,
-                "handoff_message": (
-                    "I couldn't find this in our docs. "
-                    "Can I get your email so our team can help you directly?"
-                ),
-                "session_id": session_id,
-                "history": updated_history,
-            }
-            return Response(
-                content=json.dumps(data, ensure_ascii=False),
-                media_type="application/json; charset=utf-8"
-            )
-
-        context = "\n\n".join(context_texts)
-
-        # Build conversation history string
-        history_str = ""
-        if recent_history:
-            history_str = "CONVERSATION HISTORY:\n"
-            for msg in recent_history:
-                history_str += f"{msg['role'].upper()}: {msg['content']}\n"
-            history_str += "\n"
-
-        prompt = SYSTEM_PROMPT.format(context=context, history=history_str) + "\nQuestion: " + query_text
-
-        groq_client = GroqClient(api_key=settings.GROQ_API_KEY)
-        completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}]
+        return await _execute_tenant_query(
+            tenant_id=tenant_id,
+            query_text_raw=request.query,
+            top_k=5,
+            session_id=request.session_id,
+            history_msgs=request.history,
         )
-        response_text = completion.choices[0].message.content
-        answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
-
-        # Hard override: if the LLM flagged insufficient context, short-circuit
-        if "INSUFFICIENT_CONTEXT" in answer:
-            await _log_query(supabase, query_text, max_similarity, True)
-            updated_history.append({"role": "assistant", "content": "I couldn't find a reliable answer in our documentation."})
-            data = {
-                "query": query_text,
-                "answer": "I couldn't find a reliable answer in our documentation.",
-                "sources": results,
-                "confidence_score": 0.0,
-                "needs_handoff": True,
-                "session_id": session_id,
-                "history": updated_history,
-            }
-            data["handoff_message"] = (
-                "I couldn't find this in our docs. "
-                "Can I get your email so our team can help you directly?"
-            )
-            return Response(
-                content=json.dumps(data, ensure_ascii=False),
-                media_type="application/json; charset=utf-8"
-            )
-
-        handoff = _needs_handoff(answer)
-        await _log_query(supabase, query_text, max_similarity, handoff)
-
-        updated_history.append({"role": "assistant", "content": answer})
-
-        data = {
-            "query": query_text,
-            "answer": answer,
-            "sources": results,
-            "confidence_score": max_similarity,
-            "needs_handoff": handoff,
-            "session_id": session_id,
-            "history": updated_history,
-        }
-        if handoff:
-            data["handoff_message"] = (
-                "I couldn't find this in our docs. "
-                "Can I get your email so our team can help you directly?"
-            )
-
-        return Response(
-            content=json.dumps(data, ensure_ascii=False),
-            media_type="application/json; charset=utf-8"
-        )
-
     except HTTPException:
         raise
     except Exception as e:
