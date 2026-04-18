@@ -16,18 +16,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://stergios-ziliaskopoulos.github.io",
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:5500",
-        "https://firstline-ai.vercel.app",
-        "https://firstline-ai-beta.vercel.app",
-        "https://trustqueue.com",
-        "https://www.trustqueue.com",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["POST", "GET", "OPTIONS"],
     allow_headers=["*"],
 )
 
