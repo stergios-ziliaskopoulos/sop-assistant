@@ -20,6 +20,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 import uuid
 import os
+import re
 import json
 import time
 import httpx
@@ -85,8 +86,10 @@ RULES:
 3. If the context contains the answer: answer it in 1–3 sentences, plainly.
 4. If the context does not contain a complete and reliable answer: output ONLY this sentence and nothing else — no partial answers, no preamble:
    "I don't have a reliable answer for this in our documentation. Let me connect you with the team."
+   When you cannot answer due to insufficient documentation, output ONLY the handoff phrase. Do NOT include a Source line in handoff responses.
 5. Source attribution goes at the very end, on its own line, in this exact format:
    📄 Source: [section-title]
+   Source lines apply ONLY to real answers. Never append a Source line to a handoff response.
 6. Never answer from memory or general knowledge. Context is the only source of truth.
 
 CONTEXT:
@@ -252,6 +255,8 @@ async def _execute_tenant_query(
         )
 
     handoff = _needs_handoff(answer)
+    if handoff:
+        answer = re.sub(r"\n*\s*📄\s*Source:.*$", "", answer, flags=re.MULTILINE).rstrip()
     await _log_query(supabase, query_text, max_similarity, handoff)
 
     updated_history.append({"role": "assistant", "content": answer})
