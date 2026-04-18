@@ -460,6 +460,23 @@ async def demo_handoff(request: HandoffRequest, req: Request):
             )
 
         supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+
+        support_email = "szilias@gmail.com"
+        slack_webhook_url: str | None = None
+        try:
+            settings_resp = (
+                await supabase.table("settings")
+                .select("support_email, slack_webhook_url")
+                .eq("tenant_id", DEMO_TENANT_ID)
+                .maybe_single()
+                .execute()
+            )
+            if settings_resp and settings_resp.data:
+                support_email = settings_resp.data.get("support_email") or support_email
+                slack_webhook_url = settings_resp.data.get("slack_webhook_url")
+        except Exception:
+            logging.warning("Tenant settings lookup failed; using defaults", exc_info=True)
+
         await supabase.table("handoff_requests").insert({
             "email": request.email,
             "question": request.question,
@@ -483,7 +500,7 @@ async def demo_handoff(request: HandoffRequest, req: Request):
                     headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
                     json={
                         "from": "onboarding@resend.dev",
-                        "to": ["szilias@gmail.com"],
+                        "to": [support_email],
                         "subject": "TrustQueue - Human needed",
                         "text": email_body,
                     },
@@ -496,6 +513,7 @@ async def demo_handoff(request: HandoffRequest, req: Request):
                 question=request.question,
                 chat_context=history_text or request.chat_context,
                 session_id=getattr(request, "session_id", None),
+                webhook_url=slack_webhook_url,
             )
         )
 

@@ -16,8 +16,10 @@ async def notify_handoff(
     question: str,
     chat_context: str,
     session_id: str | None = None,
+    webhook_url: str | None = None,
 ) -> bool:
-    if not settings.SLACK_WEBHOOK_URL:
+    effective_webhook = webhook_url or settings.SLACK_WEBHOOK_URL
+    if not effective_webhook:
         return False
 
     email = _sanitize(str(email or ""))
@@ -74,7 +76,7 @@ async def notify_handoff(
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(
-                settings.SLACK_WEBHOOK_URL,
+                effective_webhook,
                 json={
                     "text": f"\U0001f6a8 Handoff: {email} — {question[:80]}",
                     "blocks": blocks,
