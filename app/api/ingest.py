@@ -1,10 +1,21 @@
-from fastapi import APIRouter, HTTPException
+import os
+import secrets
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 from supabase import create_async_client
 from app.models.schemas import IngestRequest
 from app.core.config import settings
 from app.core.embeddings import generate_embedding
 
 router = APIRouter()
+
+
+def verify_ingest_key(x_ingest_key: str = Header(None, alias="X-Ingest-Key")):
+    ingest_key = os.getenv("INGEST_KEY")
+    if not ingest_key:
+        raise HTTPException(status_code=503, detail="Ingest endpoint not configured")
+    if not x_ingest_key or not secrets.compare_digest(x_ingest_key, ingest_key):
+        raise HTTPException(status_code=401, detail="Invalid or missing ingest key")
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
     """
@@ -22,7 +33,7 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[st
         
     return chunks
 
-@router.post("/ingest")
+@router.post("/ingest", dependencies=[Depends(verify_ingest_key)])
 async def ingest_document(request: IngestRequest):
     try:
         # 1. Split content into chunks
