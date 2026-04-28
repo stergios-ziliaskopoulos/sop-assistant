@@ -29,6 +29,8 @@ import traceback
 import logging
 from groq import Groq as GroqClient
 from app.services.slack_notifier import notify_handoff
+from app.middleware.origin_check import check_origin
+from app.middleware.rate_limiter import check_rate_limit
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -155,6 +157,8 @@ async def _execute_tenant_query(
     session_id: Optional[str],
     history_msgs: Optional[List[ChatMessage]],
 ) -> Response:
+    await check_rate_limit(tenant_id)
+
     session_id = session_id or str(uuid.uuid4())
     history = [msg.model_dump() for msg in history_msgs] if history_msgs else []
     recent_history = history[-10:]
@@ -426,13 +430,14 @@ async def demo_query(request: DemoQueryRequest, req: Request):
 
 
 @router.post("/query/{tenant_id}")
-async def tenant_query(tenant_id: str, request: TenantQueryRequest):
+async def tenant_query(tenant_id: str, request: TenantQueryRequest, req: Request):
     try:
         uuid.UUID(tenant_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid tenant_id: must be a UUID")
 
     try:
+        await check_origin(req, tenant_id)
         return await _execute_tenant_query(
             tenant_id=tenant_id,
             query_text_raw=request.query,
