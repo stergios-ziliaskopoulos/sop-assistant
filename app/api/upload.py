@@ -73,7 +73,7 @@ async def upload_document(file: UploadFile = File(...), user=Depends(get_current
 
         embeddings = [await generate_embedding(chunk) for chunk in chunks]
 
-        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
         
         records = []
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):

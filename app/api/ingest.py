@@ -46,7 +46,7 @@ async def ingest_document(request: IngestRequest):
         embeddings = [await generate_embedding(chunk) for chunk in chunks]
 
         # 3. Insert each chunk + embedding into Supabase table "documents"
-        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
         
         records = []
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):

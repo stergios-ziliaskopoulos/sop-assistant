@@ -8,7 +8,7 @@ router = APIRouter()
 @router.get("/documents")
 async def get_documents(user=Depends(get_current_user)):
     try:
-        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
         
         # We fetch records and group them in Python. For a production system with millions
         # of rows, it is highly recommended to use an RPC or View in Supabase to perform
@@ -41,7 +41,7 @@ async def get_documents(user=Depends(get_current_user)):
 @router.delete("/documents/{title}")
 async def delete_document(title: str, user=Depends(get_current_user)):
     try:
-        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
         # Delete all chunks for this title
         response = await supabase.table("documents").delete().eq("title", title).eq("tenant_id", user.id).execute()
         

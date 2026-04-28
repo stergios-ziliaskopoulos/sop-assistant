@@ -162,7 +162,7 @@ async def _execute_tenant_query(
 
     query_embedding = await generate_embedding(query_text)
 
-    supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
     response = await supabase.rpc(
         "match_documents",
@@ -294,7 +294,7 @@ async def query_documents(request: QueryRequest, user=Depends(get_current_user))
         query_embedding = await generate_embedding(query_text)
 
         # 2. Connect to Supabase
-        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
         
         # 3. Call the match_documents RPC function for cosine similarity search
         response = await supabase.rpc(
@@ -462,7 +462,7 @@ async def demo_handoff(request: HandoffRequest, req: Request):
                 f"{msg.role.upper()}: {msg.content}" for msg in request.history
             )
 
-        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
         support_email = "stergios.z@trustqueue.com"
         slack_webhook_url: str | None = None
@@ -536,7 +536,7 @@ async def demo_handoff(request: HandoffRequest, req: Request):
 @router.get("/public/stats")
 async def public_stats():
     try:
-        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
         logs_resp = await supabase.table("query_logs").select("confidence_score, triggered_handoff").execute()
         rows = logs_resp.data or []
@@ -574,7 +574,7 @@ async def admin_stats(req: Request):
         raise HTTPException(status_code=401, detail="Invalid admin key")
 
     try:
-        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
         logs_resp = await supabase.table("query_logs").select("confidence_score, triggered_handoff").execute()
         rows = logs_resp.data or []
