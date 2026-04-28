@@ -105,13 +105,14 @@ HANDOFF_ANSWER = (
 )
 
 
-async def _log_query(supabase, query: str, confidence_score: float, triggered_handoff: bool):
+async def _log_query(supabase, tenant_id: str, query: str, confidence_score: float, triggered_handoff: bool):
     logging.info(f"[CONFIDENCE] query=\"{query[:80]}\" max_similarity={confidence_score:.4f} handoff={triggered_handoff}")
     try:
         await supabase.table("query_logs").insert({
             "query": query,
             "confidence_score": confidence_score,
             "triggered_handoff": triggered_handoff,
+            "tenant_id": tenant_id,
         }).execute()
     except Exception as e:
         logging.error(f"Failed to log query: {e}")
@@ -197,7 +198,7 @@ async def _execute_tenant_query(
     updated_history = recent_history + [{"role": "user", "content": query_text}]
 
     if max_similarity < CONFIDENCE_LOW:
-        await _log_query(supabase, query_text, max_similarity, True)
+        await _log_query(supabase, tenant_id, query_text, max_similarity, True)
         updated_history.append({"role": "assistant", "content": HANDOFF_ANSWER})
         data = {
             "query": query_text,
@@ -237,7 +238,7 @@ async def _execute_tenant_query(
     answer = str(response_text).encode('utf-8', errors='ignore').decode('utf-8')
 
     if "INSUFFICIENT_CONTEXT" in answer:
-        await _log_query(supabase, query_text, max_similarity, True)
+        await _log_query(supabase, tenant_id, query_text, max_similarity, True)
         updated_history.append({"role": "assistant", "content": "I couldn't find a reliable answer in our documentation."})
         data = {
             "query": query_text,
@@ -260,7 +261,7 @@ async def _execute_tenant_query(
     handoff = _needs_handoff(answer)
     if handoff:
         answer = re.sub(r"\n*\s*📄\s*Source:.*$", "", answer, flags=re.MULTILINE).rstrip()
-    await _log_query(supabase, query_text, max_similarity, handoff)
+    await _log_query(supabase, tenant_id, query_text, max_similarity, handoff)
 
     updated_history.append({"role": "assistant", "content": answer})
 
@@ -330,7 +331,7 @@ async def query_documents(request: QueryRequest, user=Depends(get_current_user))
 
         # 5. Confidence-based routing
         if max_similarity < CONFIDENCE_LOW:
-            await _log_query(supabase, query_text, max_similarity, True)
+            await _log_query(supabase, user.id, query_text, max_similarity, True)
             data = {
                 "query": query_text,
                 "answer": HANDOFF_ANSWER,
@@ -363,7 +364,7 @@ async def query_documents(request: QueryRequest, user=Depends(get_current_user))
         source_name = results[0]["title"] if results else "Unknown"
         answer += f"\n\n📄 Source: [{source_name}]"
 
-        await _log_query(supabase, query_text, max_similarity, False)
+        await _log_query(supabase, user.id, query_text, max_similarity, False)
 
         data = {
             "query": query_text,
@@ -486,6 +487,7 @@ async def demo_handoff(request: HandoffRequest, req: Request):
             "chat_context": request.chat_context,
             "history": history_text or None,
             "status": "pending",
+            "tenant_id": DEMO_TENANT_ID,
         }).execute()
 
         if settings.RESEND_API_KEY:
@@ -534,11 +536,14 @@ async def demo_handoff(request: HandoffRequest, req: Request):
 
 
 @router.get("/public/stats")
-async def public_stats():
+async def public_stats(tenant_id: Optional[str] = None):
     try:
         supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
-        logs_resp = await supabase.table("query_logs").select("confidence_score, triggered_handoff").execute()
+        logs_query = supabase.table("query_logs").select("confidence_score, triggered_handoff")
+        if tenant_id:
+            logs_query = logs_query.eq("tenant_id", tenant_id)
+        logs_resp = await logs_query.execute()
         rows = logs_resp.data or []
 
         total_queries = len(rows)
@@ -549,7 +554,10 @@ async def public_stats():
         )
         resolution_rate = (answered / total_queries * 100) if total_queries > 0 else 0.0
 
-        handoffs_resp = await supabase.table("handoff_requests").select("status").execute()
+        handoffs_query = supabase.table("handoff_requests").select("status")
+        if tenant_id:
+            handoffs_query = handoffs_query.eq("tenant_id", tenant_id)
+        handoffs_resp = await handoffs_query.execute()
         total_handoffs = len(handoffs_resp.data or [])
 
         return {
@@ -568,7 +576,7 @@ async def public_stats():
 
 
 @router.get("/admin/stats")
-async def admin_stats(req: Request):
+async def admin_stats(req: Request, tenant_id: Optional[str] = None):
     admin_key = req.headers.get("X-Admin-Key")
     if admin_key != settings.ADMIN_KEY:
         raise HTTPException(status_code=401, detail="Invalid admin key")
@@ -576,7 +584,10 @@ async def admin_stats(req: Request):
     try:
         supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
-        logs_resp = await supabase.table("query_logs").select("confidence_score, triggered_handoff").execute()
+        logs_query = supabase.table("query_logs").select("confidence_score, triggered_handoff")
+        if tenant_id:
+            logs_query = logs_query.eq("tenant_id", tenant_id)
+        logs_resp = await logs_query.execute()
         rows = logs_resp.data or []
 
         total_queries = len(rows)
@@ -588,7 +599,10 @@ async def admin_stats(req: Request):
         )
         resolution_rate = (answered / total_queries * 100) if total_queries > 0 else 0.0
 
-        handoffs_resp = await supabase.table("handoff_requests").select("status").execute()
+        handoffs_query = supabase.table("handoff_requests").select("status")
+        if tenant_id:
+            handoffs_query = handoffs_query.eq("tenant_id", tenant_id)
+        handoffs_resp = await handoffs_query.execute()
         handoff_rows = handoffs_resp.data or []
 
         total_handoffs = len(handoff_rows)
