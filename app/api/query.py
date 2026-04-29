@@ -54,7 +54,7 @@ HANDOFF_PHRASES = [
 
 
 CONFIDENCE_LOW = 0.50
-CONFIDENCE_HIGH = 0.65
+CONFIDENCE_HIGH = 0.55
 
 CONSERVATIVE_PROMPT = (
     "You are a strict documentation-only support agent. "
