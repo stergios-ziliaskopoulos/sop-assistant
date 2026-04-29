@@ -9,6 +9,8 @@ from app.core.embeddings import generate_embedding
 
 router = APIRouter()
 
+DEMO_TENANT_ID = "5ad31d01-92e7-4386-8b49-c294afb61ce5"
+
 
 def verify_ingest_key(x_ingest_key: str = Header(None, alias="X-Ingest-Key")):
     ingest_key = os.getenv("INGEST_KEY")
@@ -35,6 +37,12 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[st
 
 @router.post("/ingest", dependencies=[Depends(verify_ingest_key)])
 async def ingest_document(request: IngestRequest):
+    if str(request.tenant_id) == DEMO_TENANT_ID:
+        raise HTTPException(
+            status_code=400,
+            detail="Demo tenant cannot receive customer KB ingest. Use a real tenant_id.",
+        )
+
     try:
         # 1. Split content into chunks
         chunks = chunk_text(request.content, chunk_size=1000, overlap=200)
@@ -58,7 +66,7 @@ async def ingest_document(request: IngestRequest):
                 "content": chunk,
                 "embedding": embedding,
                 "metadata": metadata,
-                "tenant_id": "5ad31d01-92e7-4386-8b49-c294afb61ce5"
+                "tenant_id": str(request.tenant_id),
             })
             
         # Execute batch insert

@@ -1,7 +1,9 @@
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
+from uuid import UUID
 
 class IngestRequest(BaseModel):
+    tenant_id: UUID
     title: str
     content: str
     metadata: Optional[Dict[str, Any]] = None
