@@ -37,7 +37,7 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[st
 
 @router.post("/ingest", dependencies=[Depends(verify_ingest_key)])
 async def ingest_document(request: IngestRequest):
-    if str(request.tenant_id) == DEMO_TENANT_ID:
+    if str(request.tenant_id) == DEMO_TENANT_ID and os.getenv("ALLOW_DEMO_INGEST") != "1":
         raise HTTPException(
             status_code=400,
             detail="Demo tenant cannot receive customer KB ingest. Use a real tenant_id.",
