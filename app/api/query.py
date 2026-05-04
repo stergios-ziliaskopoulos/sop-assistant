@@ -466,6 +466,96 @@ async def tenant_query(tenant_id: str, request: TenantQueryRequest, req: Request
         )
 
 
+@router.post("/handoff/{tenant_id}")
+async def tenant_handoff(tenant_id: str, request: HandoffRequest, req: Request):
+    try:
+        uuid.UUID(tenant_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid tenant_id: must be a UUID")
+
+    if tenant_id == DEMO_TENANT_ID:
+        raise HTTPException(status_code=400, detail="Cannot use demo tenant ID for production handoff")
+
+    try:
+        await check_origin(req, tenant_id)
+        await check_rate_limit(tenant_id)
+
+        history_text = ""
+        if request.history:
+            history_text = "\n".join(
+                f"{msg.role.upper()}: {msg.content}" for msg in request.history
+            )
+
+        supabase = await create_async_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+
+        settings_resp = (
+            await supabase.table("settings")
+            .select("support_email, slack_webhook_url")
+            .eq("tenant_id", tenant_id)
+            .maybe_single()
+            .execute()
+        )
+        
+        if not settings_resp or not settings_resp.data:
+            raise HTTPException(status_code=404, detail="Tenant settings not found")
+            
+        support_email = settings_resp.data.get("support_email")
+        slack_webhook_url = settings_resp.data.get("slack_webhook_url")
+
+        await supabase.table("handoff_requests").insert({
+            "email": request.email,
+            "question": request.question,
+            "chat_context": request.chat_context,
+            "history": history_text or None,
+            "status": "pending",
+            "tenant_id": tenant_id,
+        }).execute()
+
+        if settings.RESEND_API_KEY and support_email:
+            email_body = (
+                f"Customer email: {request.email}\n"
+                f"Question: {request.question}\n"
+                f"Chat context: {request.chat_context}"
+            )
+            if history_text:
+                email_body += f"\n\nFull conversation history:\n{history_text}"
+
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
+                    json={
+                        "from": "stergios.z@trustqueue.com",
+                        "to": [support_email],
+                        "subject": "TrustQueue - Human needed",
+                        "text": email_body,
+                    },
+                )
+
+        # Fire-and-forget Slack notification — never blocks the response
+        asyncio.create_task(
+            notify_handoff(
+                email=request.email,
+                question=request.question,
+                chat_context=history_text or request.chat_context,
+                session_id=getattr(request, "session_id", None),
+                webhook_url=slack_webhook_url,
+            )
+        )
+
+        return {"status": "ok", "message": "Our team will contact you shortly"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        full_trace = traceback.format_exc()
+        logging.error(f"FULL ERROR: {full_trace}")
+        return JSONResponse(
+            content={"error": "An internal server error occurred.", "details": str(e)},
+            status_code=500
+        )
+
+
 @router.post("/demo/handoff")
 async def demo_handoff(request: HandoffRequest, req: Request):
     client_ip = req.client.host if req.client else "unknown"
