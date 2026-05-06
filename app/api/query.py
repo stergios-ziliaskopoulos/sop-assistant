@@ -54,7 +54,7 @@ HANDOFF_PHRASES = [
 
 
 CONFIDENCE_LOW = 0.50
-CONFIDENCE_HIGH = 0.55
+CONFIDENCE_HIGH = 0.65
 
 CONSERVATIVE_PROMPT = (
     "You are a strict documentation-only support agent. "
@@ -102,10 +102,26 @@ RULES:
    Do NOT hand off just because the question uses different words than the context.
    Do NOT hand off if the answer is clearly present but phrased differently.
    Do NOT include a Source line in handoff responses.
-5. Source attribution goes at the very end, on its own line, in this exact format:
+5. NAMED ENTITY CHECK (this rule OVERRIDES Rule 4's topic-match guidance):
+   When the user's question contains a SPECIFIC NAMED ENTITY (a proper noun, certification, regulatory standard, technology, integration partner, or feature label), you MUST verify that EXACT entity name appears verbatim in the context before answering.
+
+   Examples of named entities that trigger this rule:
+   - Compliance: HIPAA, SOC2, PCI-DSS, ISO 27001
+   - Integrations: Salesforce, Zendesk, Slack, Mixpanel, Amplitude, PostHog
+   - Technologies: SAML, OAuth, OIDC, SSO, GraphQL
+   - Feature labels: white-label, multi-tenant, audit logs, status page
+   - Regulations: GDPR, CCPA
+
+   If the named entity APPEARS in the context: answer using that specific content.
+   If the named entity does NOT appear in the context: hand off using the Rule 4 sentence.
+
+   Do NOT extrapolate from related entities. If the user asks about HIPAA and the context only mentions GDPR, hand off (do not invent HIPAA-specific content). If the user asks about "white-label" and the context only mentions "custom dashboards", hand off (do not assume features).
+
+   Do NOT cite a chunk as the Source for an entity that chunk does not name.
+6. Source attribution goes at the very end, on its own line, in this exact format:
    📄 Source: [section-title]
    Source lines apply ONLY to real answers. Never append a Source line to a handoff response.
-6. Never answer from memory or general knowledge. Context is the only source of truth.
+7. Never answer from memory or general knowledge. Context is the only source of truth.
 
 CONTEXT:
 {context}
