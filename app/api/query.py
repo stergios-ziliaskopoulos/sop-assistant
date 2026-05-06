@@ -261,7 +261,7 @@ async def _execute_tenant_query(
 
     groq_client = GroqClient(api_key=settings.GROQ_API_KEY)
     completion = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}]
     )
     response_text = completion.choices[0].message.content
@@ -386,7 +386,7 @@ async def query_documents(request: QueryRequest, user=Depends(get_current_user))
 
         groq_client = GroqClient(api_key=settings.GROQ_API_KEY)
         completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}]
         )
         response_text = completion.choices[0].message.content
